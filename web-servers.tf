@@ -48,11 +48,30 @@ resource "aws_instance" "server" {
   user_data = <<EOF
 #!/bin/bash
 yum install httpd -y
-/sbin/chkconfig --levels 235 httpd on
-service httpd start
+sudo amazon-linux-extras install nginx1.12 -y
+sudo systemctl start nginx
+sudo systemctl enable nginx
 instanceId=$(curl http://169.254.169.254/latest/meta-data/instance-id)
 region=$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk -F\" '{print $4}')
-echo "<h1>Hello from web-server-$instanceId</h1>" > /var/www/html/index.html
+echo "<h1>Hello from web-server-$instanceId</h1>" > /usr/share/nginx/html/index.html
+echo "<html><head><title>Health Endpoint</title></head><body><h1>Health Check Passed from Server $instanceId</h1></body></html>" > /usr/share/nginx/html/health.html
+sudo chmod 644 /usr/share/nginx/html/health.html
+sudo chmod 644 /usr/share/nginx/html/index.html
+sudo tee /etc/nginx/conf.d/health_endpoint.conf > /dev/null <<EOF
+server {
+  listen 80;
+  server_name localhost;
+
+  location /health {
+    alias /usr/share/nginx/html/health.html;
+  }
+  
+  location / {
+    alias /usr/share/nginx/html/index.html;
+  }
+}
+EO
+sudo nginx -t && sudo systemctl restart nginx
   EOF
 
   tags = {
@@ -81,7 +100,7 @@ resource "aws_lb_target_group" "servers_group" {
   vpc_id = aws_vpc.vpc_example.id
 
   health_check {
-    path = "/"
+    path = "/health"
     port = 80
     healthy_threshold = 6
     unhealthy_threshold = 3
